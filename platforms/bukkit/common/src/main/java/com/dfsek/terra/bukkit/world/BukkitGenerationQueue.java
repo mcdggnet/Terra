@@ -1,6 +1,5 @@
 package com.dfsek.terra.bukkit.world;
 
-import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
 
@@ -17,7 +16,7 @@ import com.dfsek.terra.api.entity.EntityType;
 import com.dfsek.terra.api.event.events.world.generation.EntitySpawnEvent;
 import com.dfsek.terra.bukkit.BukkitEntity;
 import com.dfsek.terra.bukkit.TerraBukkitPlugin;
-import com.dfsek.terra.bukkit.world.entity.BukkitEntityType;
+import com.dfsek.terra.bukkit.world.block.data.BukkitBlockEntityDataApplier;
 
 
 public final class BukkitGenerationQueue {
@@ -121,6 +120,7 @@ public final class BukkitGenerationQueue {
 
         @Override
         public void apply(World world) {
+            if(BukkitBlockEntityDataApplier.apply(world, x, y, z, data, physics)) return;
             BlockData bukkitData = BukkitAdapter.adapt(data);
             world.getBlockAt(x, y, z).setBlockData(bukkitData, false);
         }
@@ -129,12 +129,14 @@ public final class BukkitGenerationQueue {
     private record PendingEntity(double x, double y, double z, EntityType entityType) implements PendingOperation {
         @Override
         public void apply(BukkitProtoWorld world) {
-            world.spawnEntityNow(x, y, z, entityType);
+            queueEntity(world.getBukkitWorld(), x, y, z, entityType);
         }
 
         @Override
         public void apply(World world) {
-            BukkitEntity entity = new BukkitEntity(world.spawnEntity(new Location(world, x, y, z), ((BukkitEntityType) entityType).getHandle()));
+            org.bukkit.entity.Entity bukkitEntity = BukkitServerWorld.spawnBukkitEntity(world, x, y, z, entityType);
+            if(bukkitEntity == null) return;
+            BukkitEntity entity = new BukkitEntity(bukkitEntity);
             TerraBukkitPlugin plugin = BukkitGenerationQueue.plugin;
             if(plugin != null && plugin.isEnabled()) {
                 plugin.getPlatform().getEventManager().callEvent(new EntitySpawnEvent(entity.world().getPack(), entity));

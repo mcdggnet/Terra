@@ -30,8 +30,10 @@ import com.dfsek.terra.api.world.chunk.Chunk;
 import com.dfsek.terra.api.world.chunk.generation.ChunkGenerator;
 import com.dfsek.terra.bukkit.BukkitEntity;
 import com.dfsek.terra.bukkit.generator.BukkitChunkGeneratorWrapper;
+import com.dfsek.terra.bukkit.world.block.data.BukkitBlockEntityDataApplier;
 import com.dfsek.terra.bukkit.world.block.state.BukkitBlockEntity;
 import com.dfsek.terra.bukkit.world.entity.BukkitEntityType;
+import com.dfsek.terra.bukkit.world.entity.BukkitEntityTypeExtended;
 
 
 public class BukkitServerWorld implements ServerWorld {
@@ -43,12 +45,24 @@ public class BukkitServerWorld implements ServerWorld {
 
     @Override
     public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
-        return new BukkitEntity(
-            delegate.spawnEntity(new Location(delegate, x, y, z), ((BukkitEntityType) entityType).getHandle()));
+        org.bukkit.entity.Entity entity = spawnBukkitEntity(delegate, x, y, z, entityType);
+        return entity == null ? null : new BukkitEntity(entity);
+    }
+
+    public static org.bukkit.entity.Entity spawnBukkitEntity(org.bukkit.World world, double x, double y, double z,
+                                                            EntityType entityType) {
+        Location location = new Location(world, x, y, z);
+        if(entityType instanceof BukkitEntityTypeExtended extended) {
+            return org.bukkit.Bukkit.getEntityFactory()
+                .createEntitySnapshot(extended.getData().toString())
+                .createEntity(location);
+        }
+        return world.spawnEntity(location, ((BukkitEntityType) entityType).getHandle());
     }
 
     @Override
     public void setBlockState(int x, int y, int z, BlockState data, boolean physics) {
+        if(BukkitBlockEntityDataApplier.apply(delegate, x, y, z, data, physics)) return;
         delegate.getBlockAt(x, y, z).setBlockData(BukkitAdapter.adapt(data), physics);
     }
 

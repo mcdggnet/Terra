@@ -1,6 +1,5 @@
 package com.dfsek.terra.bukkit.world;
 
-import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.generator.LimitedRegion;
@@ -23,9 +22,9 @@ import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
 import com.dfsek.terra.bukkit.BukkitEntity;
 import com.dfsek.terra.bukkit.generator.BukkitChunkGeneratorWrapper;
 import com.dfsek.terra.bukkit.util.BukkitUtils;
+import com.dfsek.terra.bukkit.world.block.data.BukkitBlockEntityDataApplier;
 import com.dfsek.terra.bukkit.world.block.data.BukkitBlockState;
 import com.dfsek.terra.bukkit.world.block.state.BukkitBlockEntity;
-import com.dfsek.terra.bukkit.world.entity.BukkitEntityType;
 
 
 public class BukkitProtoWorld implements ProtoWorld {
@@ -84,10 +83,9 @@ public class BukkitProtoWorld implements ProtoWorld {
 
     @Override
     public Entity spawnEntity(double x, double y, double z, EntityType entityType) {
-        if(delegate.isInRegion((int) x, (int) y, (int) z)) {
-            return spawnEntityNow(x, y, z, entityType);
+        if(!delegate.isInRegion((int) x, (int) y, (int) z)) {
+            logOutOfBounds((int) x, (int) y, (int) z);
         }
-        logOutOfBounds((int) x, (int) y, (int) z);
         BukkitGenerationQueue.queueEntity(delegate.getWorld(), x, y, z, entityType);
         return null;
     }
@@ -133,6 +131,7 @@ public class BukkitProtoWorld implements ProtoWorld {
     void setBlockStateNow(int x, int y, int z, BlockState data, boolean physics) {
         if(!delegate.isInRegion(x, y, z)) return;
 
+        if(BukkitBlockEntityDataApplier.apply(delegate, x, y, z, data, physics)) return;
         BlockData bukkitData = BukkitAdapter.adapt(data);
         delegate.setBlockData(x, y, z, bukkitData);
         if(physics) {
@@ -147,8 +146,8 @@ public class BukkitProtoWorld implements ProtoWorld {
     Entity spawnEntityNow(double x, double y, double z, EntityType entityType) {
         if(!delegate.isInRegion((int) x, (int) y, (int) z)) return null;
 
-        return new BukkitEntity(
-            delegate.spawnEntity(new Location(delegate.getWorld(), x, y, z), ((BukkitEntityType) entityType).getHandle()));
+        org.bukkit.entity.Entity entity = BukkitServerWorld.spawnBukkitEntity(delegate.getWorld(), x, y, z, entityType);
+        return entity == null ? null : new BukkitEntity(entity);
     }
 
     private <T> Optional<T> access(int x, int y, int z, Supplier<T> action) {

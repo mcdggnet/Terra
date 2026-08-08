@@ -38,14 +38,15 @@ import com.dfsek.terra.bukkit.nms.config.SpawnEntryConfig;
 import com.dfsek.terra.bukkit.nms.config.SpawnSettingsTemplate;
 import com.dfsek.terra.bukkit.nms.config.SpawnTypeConfig;
 import com.dfsek.terra.bukkit.nms.config.VillagerTypeTemplate;
+import com.dfsek.terra.bukkit.world.block.data.BukkitBlockEntityDataApplier;
 
 
 public class NMSPlatform extends PlatformImpl {
-
     public NMSPlatform(TerraBukkitPlugin plugin) {
-        super(plugin);
+        super(plugin, new NMSWorldHandle());
 
         Bukkit.getPluginManager().registerEvents(new NMSInjectListener(), plugin);
+        BukkitBlockEntityDataApplier.setApplier(new NMSBlockEntityDataApplier());
     }
 
     @Override

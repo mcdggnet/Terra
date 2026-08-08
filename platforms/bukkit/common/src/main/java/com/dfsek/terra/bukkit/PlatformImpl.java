@@ -47,18 +47,23 @@ public class PlatformImpl extends AbstractPlatform {
 
     private final ItemHandle itemHandle = new BukkitItemHandle();
 
-    private final WorldHandle handle = new BukkitWorldHandle();
+    private final WorldHandle handle;
 
     private final TerraBukkitPlugin plugin;
 
     private int generationThreads;
 
     public PlatformImpl(TerraBukkitPlugin plugin) {
+        this(plugin, new BukkitWorldHandle());
+    }
+
+    protected PlatformImpl(TerraBukkitPlugin plugin, WorldHandle handle) {
         generationThreads = getMoonriseGenerationThreadsWithReflection();
         if(generationThreads == 0) {
             generationThreads = 1;
         }
         this.plugin = plugin;
+        this.handle = handle;
         load();
     }
 
