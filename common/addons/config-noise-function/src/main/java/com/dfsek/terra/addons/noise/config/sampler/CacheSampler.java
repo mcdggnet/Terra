@@ -6,7 +6,6 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.Scheduler;
 import org.jetbrains.annotations.ApiStatus.Experimental;
 
-import com.dfsek.terra.api.util.cache.DoubleSeededVector2Key;
 import com.dfsek.terra.api.util.cache.DoubleSeededVector3Key;
 import com.dfsek.terra.api.util.generic.pair.Pair;
 import com.dfsek.terra.api.util.generic.pair.Pair.Mutable;
@@ -17,23 +16,19 @@ import static com.dfsek.terra.api.util.cache.CacheUtils.CACHE_EXECUTOR;
 @Experimental
 public class CacheSampler implements Sampler {
 
+    // 2D: each thread's table of recent columns, indexed by a hash of the exact coordinates. Packs use 2D caches for
+    // values worked out once per column and read at every y up it, where a Caffeine lookup cost more than many of the
+    // values it saved. A miss samples and overwrites the slot, so a lookup returns exactly what the sampler gives.
+    private static final int COLUMN_SLOTS = 256; // a power of two: the slot is the hash's top bits
+
     private final Sampler sampler;
-    private final ThreadLocal<Mutable<DoubleSeededVector2Key, LoadingCache<DoubleSeededVector2Key, Double>>> cache2D;
+    private final ThreadLocal<Columns> cache2D;
     private final ThreadLocal<Mutable<DoubleSeededVector3Key, LoadingCache<DoubleSeededVector3Key, Double>>> cache3D;
 
     public CacheSampler(Sampler sampler, int dimensions) {
         this.sampler = sampler;
         if(dimensions == 2) {
-            this.cache2D = ThreadLocal.withInitial(() -> {
-                LoadingCache<DoubleSeededVector2Key, Double> cache = Caffeine
-                    .newBuilder()
-                    .executor(CACHE_EXECUTOR)
-                    .scheduler(Scheduler.systemScheduler())
-                    .initialCapacity(256)
-                    .maximumSize(256)
-                    .build(this::sampleNoise);
-                return Pair.of(new DoubleSeededVector2Key(0, 0, 0), cache).mutable();
-            });
+            this.cache2D = ThreadLocal.withInitial(Columns::new);
             this.cache3D = null;
         } else {
             this.cache3D = ThreadLocal.withInitial(() -> {
@@ -50,11 +45,6 @@ public class CacheSampler implements Sampler {
         }
     }
 
-    private Double sampleNoise(DoubleSeededVector2Key vec) {
-        this.cache2D.get().setLeft(new DoubleSeededVector2Key(0, 0, 0));
-        return this.sampler.getSample(vec.seed, vec.x, vec.z);
-    }
-
     private Double sampleNoise(DoubleSeededVector3Key vec) {
         this.cache3D.get().setLeft(new DoubleSeededVector3Key(0, 0, 0, 0));
         return this.sampler.getSample(vec.seed, vec.x, vec.y, vec.z);
@@ -62,10 +52,20 @@ public class CacheSampler implements Sampler {
 
     @Override
     public double getSample(long seed, double x, double y) {
-        Mutable<DoubleSeededVector2Key, LoadingCache<DoubleSeededVector2Key, Double>> cachePair = cache2D.get();
-        DoubleSeededVector2Key mutableKey = cachePair.getLeft();
-        mutableKey.set(x, y, seed);
-        return cachePair.getRight().get(mutableKey);
+        Columns columns = cache2D.get();
+        long xBits = Double.doubleToRawLongBits(x);
+        long yBits = Double.doubleToRawLongBits(y);
+        int slot = Columns.slot(xBits, yBits, seed);
+        if(columns.filled[slot] && columns.x[slot] == xBits && columns.y[slot] == yBits && columns.seed[slot] == seed) {
+            return columns.value[slot];
+        }
+        double value = sampler.getSample(seed, x, y);
+        columns.x[slot] = xBits;
+        columns.y[slot] = yBits;
+        columns.seed[slot] = seed;
+        columns.value[slot] = value;
+        columns.filled[slot] = true;
+        return value;
     }
 
     @Override
@@ -74,5 +74,21 @@ public class CacheSampler implements Sampler {
         DoubleSeededVector3Key mutableKey = cachePair.getLeft();
         mutableKey.set(x, y, z, seed);
         return cachePair.getRight().get(mutableKey);
+    }
+
+    private static final class Columns {
+        private final long[] x = new long[COLUMN_SLOTS];
+        private final long[] y = new long[COLUMN_SLOTS];
+        private final long[] seed = new long[COLUMN_SLOTS];
+        private final double[] value = new double[COLUMN_SLOTS];
+        private final boolean[] filled = new boolean[COLUMN_SLOTS];
+
+        private static int slot(long xBits, long yBits, long seed) {
+            long h = xBits * 0x9E3779B97F4A7C15L ^ yBits * 0xC2B2AE3D27D4EB4FL ^ seed;
+            h ^= h >>> 33; // mixes high bits down: whole-number coordinates differ only in their high bits
+            h *= 0xFF51AFD7ED558CCDL;
+            h ^= h >>> 33;
+            return (int) (h >>> (64 - Integer.numberOfTrailingZeros(COLUMN_SLOTS)));
+        }
     }
 }
